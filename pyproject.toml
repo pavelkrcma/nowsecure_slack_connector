@@ -1,0 +1,11 @@
+[project]
+name = "nowsecure-slack-connector"
+version = "0.1.0"
+description = "Performs basic operations on the NowSecure app inventory via the Slack channel"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "requests>=2.32.4",
+    "slack-bolt>=1.23.0",
+    "python-dotenv>=1.0.0",
+]
