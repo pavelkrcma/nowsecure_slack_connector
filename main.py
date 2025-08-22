@@ -23,6 +23,7 @@ if missing_vars:
     print("- SLACK_BOT_TOKEN: Your bot token (starts with xoxb-)")
     print("- SLACK_APP_TOKEN: Your app token for Socket Mode (starts with xapp-)")
     print("- NOWSECURE_API_TOKEN: Your NowSecure API token")
+    print("- GROUP_ID: Your NowSecure group ID (UUID)")
     print("\nYou can create a .env file based on .env.example")
     exit(1)
 
