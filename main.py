@@ -51,6 +51,8 @@ def handle_message(message, say, client):
 
     match = re.search(r"A new Assessment is available for (.+)$", text)
     if not match:
+        match = re.search(r"The latest assessment for (.+) failed$", text)
+    if not match:
         print("Warning: No NowSecure assessment notification found in the message.")
         return
     app_name = match.group(1).strip()
@@ -62,7 +64,7 @@ def handle_message(message, say, client):
         if block.get("type") == "actions":
             elements = block.get("elements", [])
             for element in elements:
-                if element.get("type") == "button" and "url" in element:
+                if element.get("type") == "button" and element.get("value") == "View Assessment" and "url" in element:
                     assessment_url = element["url"]
                     break
             if assessment_url:
