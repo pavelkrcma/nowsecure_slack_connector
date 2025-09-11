@@ -13,7 +13,7 @@
             {
                 "command": "/appvetting",
                 "description": "Appvetting commands",
-                "usage_hint": "[new <app-store-url>] | [help]",
+                "usage_hint": "[new client_tag <app-store-url>] | [help]",
                 "should_escape": false
             }
         ]

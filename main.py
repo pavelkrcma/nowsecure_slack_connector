@@ -5,8 +5,13 @@ import requests
 import urllib.parse
 from pathlib import Path
 from dotenv import load_dotenv
+import logging
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+from datetime import datetime
+
+# Configure the logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] - %(message)s')
 
 # Load environment variables from .env file if it exists
 env_path = Path(__file__).parent / '.env'
@@ -42,8 +47,7 @@ def handle_message(message, say, client):
     text = message.get("text", "")
     ts = message.get("ts")
 
-    # Print raw message to console for debugging
-    print(f"Raw message received: {message}")
+    logging.debug(f"Received Slack message: {message}")
 
     # Check if the message is from the NowSecure bot
     if not message.get('bot_profile', {}).get('name') == 'NowSecure Platform':
@@ -53,7 +57,7 @@ def handle_message(message, say, client):
     if not match:
         match = re.search(r"The latest assessment for (.+) failed$", text)
     if not match:
-        print("Warning: No NowSecure assessment notification found in the message.")
+        logging.debug("No NowSecure assessment notification found in the message.")
         return
     app_name = match.group(1).strip()
 
@@ -73,9 +77,9 @@ def handle_message(message, say, client):
     match = re.search(r"/assessment/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$", assessment_url)
     if match:
         assessment_id = match.group(1)
-        print(f"Found NowSecure assessment notification for app '{app_name}' with assessment ID: {assessment_id}")
+        logging.info(f"Found NowSecure assessment notification for app '{app_name}' with assessment ID: {assessment_id}")
     else:
-        print(f"Warning: No valid assessment ID found in the URL {assessment_url}")
+        logging.warning(f"No valid assessment ID found in the URL: {assessment_url}")
         return
 
     pdf_url = (
@@ -91,10 +95,10 @@ def handle_message(message, say, client):
         pdf_response.raise_for_status()
         pdf_bytes = pdf_response.content
     except Exception as e:
-        print(f"Error downloading PDF: {e}")
+        logging.error(f"Error downloading PDF: {e}")
         return
 
-    print(f"Successfully downloaded PDF report for assessment ID: {assessment_id}")
+    logging.info(f"Downloaded PDF report for assessment ID: {assessment_id}, size: {len(pdf_bytes)} bytes")
 
     try:
         upload_response = client.files_upload_v2(
@@ -105,9 +109,9 @@ def handle_message(message, say, client):
             initial_comment=f"PDF report for app '{app_name}'",
             thread_ts=ts
         )
-        print(f"Successfully uploaded PDF report: {upload_response['file']['name']}")
+        logging.info(f"Uploaded PDF report to Slack: {upload_response}")
     except Exception as e:
-        print(f"Error posting reply: {e}")
+        logging.error(f"Error uploading PDF to Slack: {e}")
 
 """
     reply_text = f"📱 New assessment detected for: **{app_name}**\n🔍 Processing NowSecure assessment notification..."
@@ -126,6 +130,10 @@ def handle_message(message, say, client):
 @app.error
 def error_handler(error, body, logger):
     logger.exception(f"Error: {error}")
+
+@app.event("message")
+def handle_message_events(body, logger):
+    logger.info(body)
 
 def trigger_nowsecure_assessment(platform, bundle_id):
     """
@@ -155,7 +163,7 @@ def trigger_nowsecure_assessment(platform, bundle_id):
         - Returns task_status on success, error message on failure
     """
 
-    print(f"Triggering NowSecure assessment for {platform} app with bundle ID: {bundle_id}")
+    logging.info(f"Triggering NowSecure assessment for {platform} app with bundle ID: {bundle_id}")
 
     # Validate input parameters
     if not platform or not bundle_id:
@@ -171,7 +179,7 @@ def trigger_nowsecure_assessment(platform, bundle_id):
     try:
         response = requests.post(url, headers=headers)
         response_data = response.json()
-        print(f"NowSecure API response: {response_data}")
+        logging.debug(f"NowSecure API response: {response_data}")
 
         if response.status_code >= 200 and response.status_code < 300:
             # Success case
@@ -190,7 +198,7 @@ def trigger_nowsecure_assessment(platform, bundle_id):
         return False, f"Unexpected error: {str(e)}"
 
 def process_appvetting_new(url):
-    print(f"Processing new appvetting request for URL: {url}")
+    logging.info(f"Processing new appvetting request for URL: {url}")
 
     # Basic URL validation
     try:
@@ -252,11 +260,13 @@ def handle_appvetting_command(ack, respond, command):
 
 *Usage:*
 • `/appvetting` - Show this help message
-• `/appvetting new <app-store-url>` - Submit a new app for vetting
+• `/appvetting new client_tag <app-store-url>` - Submit a new app for vetting
 
 *Examples:*
-• `/appvetting new https://apps.apple.com/us/app/rakuten-viber-messenger/id382617920`
-• `/appvetting new https://play.google.com/store/apps/details?id=com.sadadcompany.sadad&hl=en_IN&pli=1`
+• `/appvetting new Schindler https://apps.apple.com/us/app/rakuten-viber-messenger/id382617920`
+• `/appvetting new Fannie_Mae https://play.google.com/store/apps/details?id=com.sadadcompany.sadad&hl=en_IN&pli=1`
+
+Note: The `client_tag` is a short identifier for your reference (no spaces).
 """
 
     # Get the command text (everything after /appvetting)
@@ -266,17 +276,27 @@ def handle_appvetting_command(ack, respond, command):
         # No parameters - show help
         respond(help_text)
         return
-    
+
     # Parse the command
     parts = text.split()
     subcommand = parts[0].lower()
-    
+
     if subcommand == "new":
-        if len(parts) < 2:
-            respond("❌ Missing URL parameter.\n\nUsage: `/appvetting new <app-store-url>`")
+        if len(parts) < 3:
+            respond("❌ Missing client_tag or URL parameter")
             return
-        
-        url = parts[1]
+
+        client_tag = parts[1]
+        url = parts[2]
+
+        # Log the appvetting request to file
+        log_entry = f"{datetime.now().isoformat()} - {client_tag} - {url}\n"
+        try:
+            with open("appvetting.log", "a") as log_file:
+                log_file.write(log_entry)
+        except Exception as e:
+            logging.error(f"Failed to write to appvetting.log: {e}")
+
         respond(process_appvetting_new(url))
 
     elif subcommand == "help":
