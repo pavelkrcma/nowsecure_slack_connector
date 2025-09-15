@@ -229,9 +229,19 @@ def process_appvetting_new(url):
         if not match:
             return "❌ Invalid URL or unable to extract bundle ID."
         app_id = match.group(1)
+
+        # Extract country code from URL (optional parameter)
+        path_parts = parsed.path.strip('/').split('/')
+        if len(path_parts) >= 3 and path_parts[0] != 'app':
+            # Country code is present (first path segment)
+            country_code = path_parts[0]
+        else:
+            # No country code specified, default to 'us'
+            country_code = 'us'
+
         # Call iTunes lookup API
         try:
-            resp = requests.get(f"https://itunes.apple.com/lookup?id={app_id}", timeout=10)
+            resp = requests.get(f"https://itunes.apple.com/{country_code}/lookup?id={app_id}", timeout=10)
             resp.raise_for_status()
             data = resp.json()
             bundle_id = data["results"][0]["bundleId"] if data.get("resultCount", 0) > 0 else None
