@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 import logging
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-from datetime import datetime
+from datetime import datetime, time
 
 # Configure the logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] - %(message)s')
@@ -177,9 +177,19 @@ def trigger_nowsecure_assessment(platform, bundle_id):
     headers = {"Authorization": f"Bearer {os.environ.get('NOWSECURE_API_TOKEN')}"}
     
     try:
-        response = requests.post(url, headers=headers)
-        response_data = response.json()
-        logging.debug(f"NowSecure API response: {response_data}")
+        retries = 3
+        while retries > 0:
+            response = requests.post(url, headers=headers)
+            response_data = response.json()
+            logging.debug(f"NowSecure API response: {response_data}")
+            if response.status_code == 429:
+                # Rate limited, wait and retry
+                wait_time = int(response.headers.get("Retry-After", "30"))
+                logging.warning(f"Rate limited by NowSecure API. Retrying after {wait_time} seconds...")
+                time.sleep(wait_time)
+                retries -= 1
+            else:
+                break
 
         if response.status_code >= 200 and response.status_code < 300:
             # Success case
@@ -217,6 +227,12 @@ def process_appvetting_new(url):
 
         # Trigger NowSecure assessment
         success, status_text = trigger_nowsecure_assessment('android', bundle_id)
+
+        if not success and status_text == 'BINARY_UNAVAILABLE':
+            logging.info(f"Binary unavailable for Android app {bundle_id}, retrying...")
+            time.sleep(5)
+            success, status_text = trigger_nowsecure_assessment('android', bundle_id)
+
         if success:
             return(f"✅ Android app `{bundle_id}` referred by {url} submitted for assessment.\nStatus: {status_text}")
         else:
@@ -252,6 +268,12 @@ def process_appvetting_new(url):
 
         # Trigger NowSecure assessment
         success, status_text = trigger_nowsecure_assessment('ios', bundle_id)
+
+        if not success and status_text == 'BINARY_UNAVAILABLE':
+            logging.info(f"Binary unavailable for iOS app {bundle_id}, retrying...")
+            time.sleep(5)
+            success, status_text = trigger_nowsecure_assessment('ios', bundle_id)
+
         if success:
             return(f"✅ iOS app `{bundle_id}` referred by {url} submitted for assessment.\nStatus: {status_text}")
         else:
