@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 import logging
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-from datetime import datetime, time
+from datetime import datetime
+import time
 
 # Configure the logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] - %(message)s')
