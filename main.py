@@ -13,6 +13,12 @@ from datetime import datetime, time
 # Configure the logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] - %(message)s')
 
+# Add a separate file handler for ERROR level logs
+error_handler = logging.FileHandler('errors.log')
+error_handler.setLevel(logging.ERROR)
+error_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] - %(message)s'))
+logging.getLogger().addHandler(error_handler)
+
 # Load environment variables from .env file if it exists
 env_path = Path(__file__).parent / '.env'
 if env_path.exists():
@@ -95,10 +101,23 @@ def handle_message(message, say, client):
         pdf_response.raise_for_status()
         pdf_bytes = pdf_response.content
     except Exception as e:
-        logging.error(f"Error downloading PDF: {e}")
+        logging.error(f"Error downloading PDF for assessment ID {assessment_id}: {e}")
         return
 
     logging.info(f"Downloaded PDF report for assessment ID: {assessment_id}, size: {len(pdf_bytes)} bytes")
+
+    if len(pdf_bytes) < 120*1024:  # 120 KB minimum size check
+        logging.error(f"PDF report size ({len(pdf_bytes)} bytes) for app '{app_name}' is unexpectedly small so skipping upload. Assessment URL: {assessment_url}")
+        reply_text = f"Assessment failed, please check the NowSecure Platform for details and contact NowSecure support if needed."
+        try:
+            client.chat_postMessage(
+                channel=channel,
+                text=reply_text,
+                thread_ts=ts  # This makes it a threaded reply
+            )
+        except Exception as e:
+            logging.error(f"Error posting reply to Slack: {e}")
+        return
 
     try:
         upload_response = client.files_upload_v2(
@@ -112,20 +131,6 @@ def handle_message(message, say, client):
         logging.info(f"Uploaded PDF report to Slack: {upload_response}")
     except Exception as e:
         logging.error(f"Error uploading PDF to Slack: {e}")
-
-"""
-    reply_text = f"📱 New assessment detected for: **{app_name}**\n🔍 Processing NowSecure assessment notification..."
-
-    try:
-        client.chat_postMessage(
-            channel=channel,
-            text=reply_text,
-            thread_ts=ts  # This makes it a threaded reply
-        )
-        print(f"Successfully replied to message with app name: {app_name}")
-    except Exception as e:
-        print(f"Error posting reply: {e}")
-"""
 
 @app.error
 def error_handler(error, body, logger):
@@ -236,6 +241,7 @@ def process_appvetting_new(url):
         if success:
             return(f"✅ Android app `{bundle_id}` referred by {url} submitted for assessment.\nStatus: {status_text}")
         else:
+            logging.error(f"Failed to submit Android app `{bundle_id}` for assessment. Error: {status_text}")
             return(f"❌ Failed to submit Android app `{bundle_id}` for assessment.\nError: {status_text}")
 
     # iOS
@@ -277,13 +283,14 @@ def process_appvetting_new(url):
         if success:
             return(f"✅ iOS app `{bundle_id}` referred by {url} submitted for assessment.\nStatus: {status_text}")
         else:
+            logging.error(f"Failed to submit iOS app `{bundle_id}` for assessment. Error: {status_text}")
             return(f"❌ Failed to submit iOS app `{bundle_id}` for assessment.\nError: {status_text}")
 
     # Unknown
     return "❌ Invalid App Store URL"
 
 @app.command("/appvetting")
-def handle_appvetting_command(ack, respond, command):
+def handle_appvetting_command(ack, respond, command, client):
     """Handle the /appvetting slash command"""
     ack() # Acknowledge the command request
 
