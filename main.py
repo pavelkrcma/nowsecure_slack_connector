@@ -183,7 +183,7 @@ def trigger_nowsecure_assessment(platform, bundle_id):
     headers = {"Authorization": f"Bearer {os.environ.get('NOWSECURE_API_TOKEN')}"}
     
     try:
-        retries = 3
+        retries = 4
         while retries > 0:
             response = requests.post(url, headers=headers)
             response_data = response.json()
@@ -306,7 +306,7 @@ def handle_appvetting_command(ack, respond, command, client):
 • `/appvetting new Schindler https://apps.apple.com/us/app/rakuten-viber-messenger/id382617920`
 • `/appvetting new Fannie_Mae https://play.google.com/store/apps/details?id=com.sadadcompany.sadad&hl=en_IN&pli=1`
 
-Note: The `client_tag` is a short identifier for your reference (no spaces).
+Note: Replace the `client_tag` by short identifier of a customer without spaces. E.g. AFP or Schindler.
 """
 
     # Get the command text (everything after /appvetting)
@@ -325,9 +325,16 @@ Note: The `client_tag` is a short identifier for your reference (no spaces).
         if len(parts) < 3:
             respond("❌ Missing client_tag or URL parameter")
             return
+        if (len(parts) > 3):
+            respond("❌ Too many parameters. Usage: `/appvetting new client_tag <app-store-url>`")
+            return
 
         client_tag = parts[1]
         url = parts[2]
+
+        if (client_tag in ["clienttag", "client_tag"]):
+            respond("❌ Invalid client_tag parameter - DO NOT use placeholder values but actual client name.")
+            return
 
         # Log the appvetting request to file
         log_entry = f"{datetime.now().isoformat()} - {client_tag} - {url}\n"
