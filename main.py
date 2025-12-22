@@ -10,6 +10,7 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from datetime import datetime
 import time
+import threading
 
 # Configure the logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] - %(message)s')
@@ -26,7 +27,7 @@ if env_path.exists():
     load_dotenv(env_path)
 
 # Validate required environment variables early
-required_env_vars = ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "NOWSECURE_API_TOKEN", "GROUP_ID"]
+required_env_vars = ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "NOWSECURE_API_TOKEN", "GROUP_ID", "HC_URL"]
 missing_vars = [var for var in required_env_vars if not os.environ.get(var)]
 
 if missing_vars:
@@ -36,11 +37,24 @@ if missing_vars:
     print("- SLACK_APP_TOKEN: Your app token for Socket Mode (starts with xapp-)")
     print("- NOWSECURE_API_TOKEN: Your NowSecure API token")
     print("- GROUP_ID: Your NowSecure group ID (UUID)")
+    print("- HC_URL: Healthcheck URL")
     print("\nYou can create a .env file based on .env.example")
     exit(1)
 
 # Initialize the Slack app with Socket Mode
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
+
+def healthcheck_loop(url, interval=300):
+    """Periodically call the healthcheck URL every `interval` seconds."""
+    try:
+        response = requests.get(url, timeout=5)
+    except Exception as e:
+        logging.error(f"Healthcheck request failed: {e}")
+        pass
+
+    timer = threading.Timer(interval, healthcheck_loop, args=[url, interval])
+    timer.daemon = True
+    timer.start()
 
 @app.message()
 def handle_message(message, say, client):
@@ -353,6 +367,9 @@ Note: Replace the `client_tag` by short identifier of a customer without spaces.
         respond(f"❌ Unknown command: `{subcommand}`\n\n{help_text}")
 
 if __name__ == "__main__":
+    # Start the healthcheck loop in a separate thread
+    healthcheck_loop(os.environ.get("HC_URL"))
+
     # Start the Socket Mode handler
     handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
     handler.start()
