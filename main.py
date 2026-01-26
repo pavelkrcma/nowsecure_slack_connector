@@ -250,7 +250,7 @@ def process_appvetting_new(url):
 
         if not success and status_text == 'BINARY_UNAVAILABLE':
             logging.info(f"Binary unavailable for Android app {bundle_id}, retrying...")
-            time.sleep(5)
+            time.sleep(60)
             success, status_text = trigger_nowsecure_assessment('android', bundle_id)
 
         if success:
@@ -292,7 +292,7 @@ def process_appvetting_new(url):
 
         if not success and status_text == 'BINARY_UNAVAILABLE':
             logging.info(f"Binary unavailable for iOS app {bundle_id}, retrying...")
-            time.sleep(5)
+            time.sleep(60)
             success, status_text = trigger_nowsecure_assessment('ios', bundle_id)
 
         if success:
@@ -358,7 +358,20 @@ Note: Replace the `client_tag` by short identifier of a customer without spaces.
         except Exception as e:
             logging.error(f"Failed to write to appvetting.log: {e}")
 
-        respond(process_appvetting_new(url))
+        appvetting_response = process_appvetting_new(url)
+
+        response_type="ephemeral"
+        if "Failed to submit " in appvetting_response:
+            user_id = command.get('user_id')
+            """
+            channel_id = command.get('channel_id')
+            user_id = command.get('user_id')
+            user_name = command.get('user_name')
+            """
+            response_type = "in_channel"
+            appvetting_response += f"\n<@U08TH7V81R9> please investigate the failure for <@{user_id}>."
+
+        respond(text=appvetting_response, response_type=response_type)
 
     elif subcommand == "help":
         respond(help_text)
