@@ -132,6 +132,16 @@ def handle_message(message, say, client):
             )
         except Exception as e:
             logging.error(f"Error posting reply to Slack: {e}")
+
+        reply_text = f"<@U08TH7V81R9> please investigate the failure of app '{app_name}'. The PDF report appears to be incomplete or corrupted. Assessment URL: {assessment_url}"
+        try:
+            client.chat_postMessage(
+                channel=channel,
+                text=reply_text
+            )
+        except Exception as e:
+            logging.error(f"Error posting reply to Slack: {e}")
+
         return
 
     try:
@@ -248,7 +258,7 @@ def process_appvetting_new(url):
         # Trigger NowSecure assessment
         success, status_text = trigger_nowsecure_assessment('android', bundle_id)
 
-        if not success and status_text == 'BINARY_UNAVAILABLE':
+        if not success and status_text[0:7] == 'BINARY_': # BINARY_UNAVAILABLE, BINARY_RESTORING
             logging.info(f"Binary unavailable for Android app {bundle_id}, retrying...")
             time.sleep(60)
             success, status_text = trigger_nowsecure_assessment('android', bundle_id)
@@ -290,7 +300,7 @@ def process_appvetting_new(url):
         # Trigger NowSecure assessment
         success, status_text = trigger_nowsecure_assessment('ios', bundle_id)
 
-        if not success and status_text == 'BINARY_UNAVAILABLE':
+        if not success and status_text[0:7] == 'BINARY_': # BINARY_UNAVAILABLE, BINARY_RESTORING
             logging.info(f"Binary unavailable for iOS app {bundle_id}, retrying...")
             time.sleep(60)
             success, status_text = trigger_nowsecure_assessment('ios', bundle_id)
