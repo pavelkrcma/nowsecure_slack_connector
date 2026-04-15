@@ -27,6 +27,7 @@ Go to [Slack API](https://api.slack.com/apps) and create a new app using manifes
    SLACK_APP_TOKEN=xapp-your-app-token-here
    NOWSECURE_API_TOKEN=nowsecuretoken
    GROUP_ID=UUID
+   HC_URL=https://hc-ping.com/xxx
    ```
 
 GROUP_ID is UUID of the corresponding NowSecure group
