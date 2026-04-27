@@ -11,6 +11,9 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from datetime import datetime
 import time
 import threading
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Configure the logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] - %(message)s')
@@ -55,6 +58,48 @@ def healthcheck_loop(url, interval=300):
     timer = threading.Timer(interval, healthcheck_loop, args=[url, interval])
     timer.daemon = True
     timer.start()
+
+def send_email(to, body, subject="Notification"):
+    """
+    Send an email via SMTP.
+    
+    Args:
+        to (str): Recipient email address
+        body (str): Email body content
+        subject (str): Email subject line (default: "Notification")
+    
+    Returns:
+        bool: True if email sent successfully, False otherwise
+    """
+    try:
+        sender = os.environ.get("EMAIL_FROM")
+        password = os.environ.get("EMAIL_PASSWORD")
+        smtp_server = os.environ.get("EMAIL_SMTP_SERVER")
+        smtp_port = int(os.environ.get("EMAIL_SMTP_PORT", 587))
+        
+        if not all([sender, password, smtp_server, smtp_port]):
+            logging.error("Missing required email configuration variables")
+            return False
+        
+        msg = MIMEMultipart()
+        msg["From"] = sender
+        msg["To"] = to
+        msg["CC"] = sender  # CC to sender for record-keeping
+        msg["Subject"] = subject
+        
+        msg.attach(MIMEText(body, "plain"))
+        
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(sender, password)
+            server.send_message(msg)
+        
+        logging.info(f"Email sent successfully to {to}")
+        return True
+    
+    except Exception as e:
+        logging.error(f"Failed to send email to {to}: {e}")
+        return False
 
 @app.message()
 def handle_message(message, say, client):
@@ -250,27 +295,17 @@ def process_appvetting_new(url):
 
     # Android
     if url.startswith("https://play.google.com/store/apps/"):
+        platform = 'android'
+
         query = urllib.parse.parse_qs(parsed.query)
         bundle_id = query.get("id", [None])[0]
         if not bundle_id:
             return "❌ Invalid URL or unable to extract package name."
 
-        # Trigger NowSecure assessment
-        success, status_text = trigger_nowsecure_assessment('android', bundle_id)
-
-        if not success and status_text[0:7] == 'BINARY_': # BINARY_UNAVAILABLE, BINARY_RESTORING
-            logging.info(f"Binary unavailable for Android app {bundle_id}, retrying...")
-            time.sleep(60)
-            success, status_text = trigger_nowsecure_assessment('android', bundle_id)
-
-        if success:
-            return(f"✅ Android app `{bundle_id}` referred by {url} submitted for assessment.\nStatus: {status_text}")
-        else:
-            logging.error(f"Failed to submit Android app `{bundle_id}` for assessment. Error: {status_text}")
-            return(f"❌ Failed to submit Android app `{bundle_id}` for assessment.\nError: {status_text}")
-
     # iOS
     if url.startswith("https://apps.apple.com/"):
+        platform = 'ios'
+
         # Extract numeric id from the URL (after '/id' and before optional '?')
         match = re.search(r'/id(\d+)', url)
         if not match:
@@ -297,22 +332,26 @@ def process_appvetting_new(url):
         except Exception:
             return "❌ Unable to retrieve bundle ID."
 
-        # Trigger NowSecure assessment
-        success, status_text = trigger_nowsecure_assessment('ios', bundle_id)
+    if not platform:
+        return "❌ Invalid App Store URL"
 
-        if not success and status_text[0:7] == 'BINARY_': # BINARY_UNAVAILABLE, BINARY_RESTORING
-            logging.info(f"Binary unavailable for iOS app {bundle_id}, retrying...")
-            time.sleep(60)
-            success, status_text = trigger_nowsecure_assessment('ios', bundle_id)
+    # Trigger NowSecure assessment
+    success, status_text = trigger_nowsecure_assessment(platform, bundle_id)
 
-        if success:
-            return(f"✅ iOS app `{bundle_id}` referred by {url} submitted for assessment.\nStatus: {status_text}")
-        else:
-            logging.error(f"Failed to submit iOS app `{bundle_id}` for assessment. Error: {status_text}")
-            return(f"❌ Failed to submit iOS app `{bundle_id}` for assessment.\nError: {status_text}")
+    # Check for BINARY_UNAVAILABLE, BINARY_RESTORING and generic message about assessments not being available and retry after 60 seconds if that's the case
+    if not success and (status_text[0:7] == 'BINARY_' or status_text == 'Assessments are not available for this app at this time'):
+        logging.info(f"Binary unavailable for {platform} app {bundle_id}, retrying...")
+        time.sleep(60)
+        success, status_text = trigger_nowsecure_assessment(platform, bundle_id)
 
-    # Unknown
-    return "❌ Invalid App Store URL"
+    if not success and status_text == 'Assessment in progress. Please wait for the current assessment to complete before initiating a new one.':
+        success = True # Consider this a success since the assessment is already in progress
+
+    if success:
+        return(f"✅ {platform} app `{bundle_id}` referred by {url} submitted for assessment.\nStatus: {status_text}")
+    else:
+        logging.error(f"Failed to submit {platform} app `{bundle_id}` referred by {url} for assessment. Error: {status_text}")
+        return(f"❌ NowSecure API failed to submit {platform} app `{bundle_id}` referred by {url} for assessment.\nError: {status_text}")
 
 @app.command("/appvetting")
 def handle_appvetting_command(ack, respond, command, client):
@@ -372,6 +411,11 @@ Note: Replace the `client_tag` by short identifier of a customer without spaces.
 
         response_type="ephemeral"
         if "Failed to submit " in appvetting_response:
+            # Send an email notification to the security team about the failure
+            email_subject = f"Application assessment error (Jamf)"
+            email_body = f"Hello,\n\nJamf encountered a problem when trying to submit an application for analysis.\n\n{appvetting_response}\n\nThank you for resolving the issue.\nPavel Krcma\n"
+            send_email("support@nowsecure.com", email_subject, email_body)
+
             user_id = command.get('user_id')
             """
             channel_id = command.get('channel_id')
