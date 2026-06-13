@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 import logging
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import threading
 import smtplib
@@ -19,10 +19,10 @@ from email.mime.multipart import MIMEMultipart
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] - %(message)s')
 
 # Add a separate file handler for ERROR level logs
-error_handler = logging.FileHandler('errors.log')
-error_handler.setLevel(logging.ERROR)
-error_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] - %(message)s'))
-logging.getLogger().addHandler(error_handler)
+#error_handler = logging.FileHandler('errors.log')
+#error_handler.setLevel(logging.ERROR)
+#error_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] - %(message)s'))
+#logging.getLogger().addHandler(error_handler)
 
 # Load environment variables from .env file if it exists
 env_path = Path(__file__).parent / '.env'
@@ -58,6 +58,35 @@ def healthcheck_loop(url, interval=300):
     timer = threading.Timer(interval, healthcheck_loop, args=[url, interval])
     timer.daemon = True
     timer.start()
+
+def _seconds_until_next_wednesday_10am():
+    now = datetime.now()
+    target = now.replace(hour=10, minute=0, second=0, microsecond=0)
+    days_ahead = (2 - now.weekday()) % 7  # Wednesday = 2
+    target += timedelta(days=days_ahead)
+    if target <= now:
+        target += timedelta(days=7)
+    return (target - now).total_seconds()
+
+def appvetting_log_scheduler():
+    """Upload appvetting.log to Slack every Wednesday at 10:00."""
+    log_path = "appvetting.log"
+    while True:
+        sleep_seconds = _seconds_until_next_wednesday_10am()
+        logging.info("Next appvetting.log upload in %.0f seconds", sleep_seconds)
+        time.sleep(sleep_seconds)
+        try:
+            with open(log_path, "rb") as f:
+                app.client.files_upload_v2(
+                    channel="C08UK5BBA90",
+                    file=f.read(),
+                    filename="appvetting.log",
+                    title="appvetting.log",
+                    initial_comment="Appvetting usage log",
+                )
+            logging.info("appvetting.log uploaded to %s", channel_id)
+        except Exception as e:
+            logging.error("appvetting.log upload failed: %s", e)
 
 def send_email(to, body, subject="Notification"):
     """
@@ -154,7 +183,7 @@ def handle_message(message, say, client):
         "&finding.businessImpact=false&finding.remediationResources=false"
         "&evidenceFormats[]=inline"
     )
-    headers = {"Authorization": f"Bearer {os.environ.get("NOWSECURE_API_TOKEN")}"}
+    headers = {"Authorization": f"Bearer {os.environ.get('NOWSECURE_API_TOKEN')}"}
 
     try:
         pdf_response = requests.get(pdf_url, headers=headers)
@@ -436,6 +465,9 @@ Note: Replace the `client_tag` by short identifier of a customer without spaces.
 if __name__ == "__main__":
     # Start the healthcheck loop in a separate thread
     healthcheck_loop(os.environ.get("HC_URL"))
+
+    # Start the weekly appvetting.log upload scheduler
+    threading.Thread(target=appvetting_log_scheduler, daemon=True).start()
 
     # Start the Socket Mode handler
     handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
