@@ -84,7 +84,7 @@ def appvetting_log_scheduler():
                     title="appvetting.log",
                     initial_comment="Appvetting usage log",
                 )
-            logging.info("appvetting.log uploaded to %s", channel_id)
+            logging.info("appvetting.log uploaded successfully")
         except Exception as e:
             logging.error("appvetting.log upload failed: %s", e)
 
@@ -314,12 +314,14 @@ def trigger_nowsecure_assessment(platform, bundle_id):
 def process_appvetting_new(url):
     logging.info(f"Processing new appvetting request for URL: {url}")
 
-    # Basic URL validation
-    try:
+    url = url.strip()
+    parsed = urllib.parse.urlparse(url)
+    if not parsed.scheme:
+        url = "https://" + url
         parsed = urllib.parse.urlparse(url)
-        if not (parsed.scheme and parsed.netloc):
-            return "❌ Invalid URL"
-    except Exception:
+    if parsed.scheme not in ("http", "https"):
+        return "❌ Invalid URL (only http/https supported)"
+    if not parsed.netloc or '.' not in parsed.netloc:
         return "❌ Invalid URL"
 
     # Android
