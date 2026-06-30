@@ -441,7 +441,7 @@ Note: Replace the `client_tag` by short identifier of a customer without spaces.
         appvetting_response = process_appvetting_new(url)
 
         response_type="ephemeral"
-        if "Failed to submit " in appvetting_response:
+        if "failed to submit " in appvetting_response.lower():
             # Send an email notification to the security team about the failure
             email_subject = f"Application assessment error (Jamf)"
             email_body = f"Hello,\n\nJamf encountered a problem when trying to submit an application for analysis.\n\n{appvetting_response}\n\nThank you for resolving the issue.\nPavel Krcma\n"
